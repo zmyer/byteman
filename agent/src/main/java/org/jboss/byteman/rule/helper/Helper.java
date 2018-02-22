@@ -23,14 +23,29 @@
  */
 package org.jboss.byteman.rule.helper;
 
+import org.jboss.byteman.agent.Transformer;
 import org.jboss.byteman.rule.Rule;
 import org.jboss.byteman.rule.exception.ExecuteException;
-import org.jboss.byteman.synchronization.*;
+import org.jboss.byteman.synchronization.CountDown;
+import org.jboss.byteman.synchronization.Counter;
+import org.jboss.byteman.synchronization.Joiner;
+import org.jboss.byteman.synchronization.Rendezvous;
 import org.jboss.byteman.synchronization.Timer;
-import org.jboss.byteman.agent.Transformer;
+import org.jboss.byteman.synchronization.Waiter;
 
-import java.io.*;
-import java.util.*;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * This is the default helper class which is used to define builtin operations for rules.
@@ -1355,6 +1370,80 @@ public class Helper
         return null;
     }
 
+    /**
+     * atomically return a list of all keys for current links in the map named by mapName
+     * @param mapName the name of the map to retrieve keys from
+     * @return a possibly zero-length list of all keys or null if the named map is not found
+     */
+    public List<Object> linkNames(Object mapName)
+    {
+        synchronized (linkMaps) {
+            HashMap<Object, Object> map = linkMaps.get(mapName);
+            if (map != null) {
+                Set<Object> keySet = map.keySet();
+                
+                int size = keySet.size();
+                if (size == 0) {
+                    return Collections.EMPTY_LIST;
+                } else {
+                    ArrayList<Object> list = new ArrayList<Object>(size);
+                    for (Object key : keySet) {
+                        list.add(key);
+                    }
+                    return list;
+                }
+            } else {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * atomically return a list of all values for current links in the map named by mapName
+     * @param mapName the name of the map to retrieve values from
+     * @return a possibly zero-length list of all values or null if the named map is not found
+     */
+    public List<Object> linkValues(Object mapName)
+    {
+        synchronized (linkMaps) {
+            HashMap<Object, Object> map = linkMaps.get(mapName);
+            if (map != null) {
+                Collection<Object> values = map.values();
+
+                int size = values.size();
+                if (size == 0) {
+                    return Collections.EMPTY_LIST;
+                } else {
+                    ArrayList<Object> list = new ArrayList<Object>(size);
+                    for (Object key : values) {
+                        list.add(key);
+                    }
+                    return list;
+                }
+            } else {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * clear all current links from the map named by mapName
+     * @param mapName the name of the map to clear
+     * @return true if the named map was found and was not empty otherwise false
+     */
+    public boolean clearLinks(Object mapName)
+    {
+        synchronized (linkMaps) {
+            HashMap<Object, Object> map = linkMaps.get(mapName);
+            if (map != null) {
+                boolean result = !map.isEmpty();
+                map.clear();
+                return result;
+            }
+            return false;
+        }
+    }
+
     // default link support
 
     /**
@@ -1388,7 +1477,33 @@ public class Helper
         return unlink("default", name);
     }
 
+    /**
+     * retrieve all keys in the default linkmap by indirectly calling linkNames("default")
+     * @return all current keys in the default linkmap
+     */
+    public List<Object> linkNames()
+    {
+        return linkNames("default");
+    }
 
+    /**
+     * retrieve all values in the default linkmap by indirectly calling linkValues("default")
+     * @return all current values in the default linkmap
+     */
+    public List<Object> linkValues()
+    {
+        return linkValues("default");
+    }
+
+    /**
+     * clear all links in the default linkmap by indirectly calling clearLinks("default")
+     * @return true if the default map was found and was not empty otherwise false
+     */
+    public boolean clearLinks()
+    {
+        return clearLinks("default");
+    }
+    
     /**
      * cause the current thread to throw a runtime exception which will normally cause it to exit.
      * The exception may not kill the thread if the trigger method or calling code contains a
@@ -3500,6 +3615,7 @@ public class Helper
 
     public static void deactivated()
     {
+        clearStaticResources();
         if (Transformer.isDebug()) {
             System.out.println("Default helper deactivated");
         }
@@ -3758,6 +3874,37 @@ public class Helper
         writer.write(".log");
         return writer.toString();
     }
+
+    /**
+     * clean up function called by deactivate to ensure all
+     * static resources used to hold rule state are cleared
+     */
+    private static void clearStaticResources()
+    {
+        // simply clean up all static resources
+        // it is up to the program to ensure
+        // nothing is depending or waiting on them
+        flagSet.clear();
+        countDownMap.clear();
+        counterMap.clear();
+        waitMap.clear();
+        rendezvousMap.clear();
+        timerMap.clear();
+        linkMaps.clear();
+        // try closing all trace streams
+        // n.b. this will fail for out and err
+        // which is what we want
+        List<Object> keyset = new ArrayList<Object>(traceMap.keySet());
+        for (Object key : keyset) {
+            doTraceClose(key);
+        }
+        // restore the 3 other well known streams
+        PrintStream sysout =  traceMap.get("out");
+        traceMap.put("dbg", sysout);
+        traceMap.put("vrb", sysout);
+        traceMap.put("nzy", sysout);
+    }
+
     /**
      * a hash map used to identify trace streams from their
      * identifying objects

@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.jboss.byteman.modules.ClassbyteClassLoader;
 import org.jboss.byteman.modules.ModuleSystem;
+import org.jboss.byteman.rule.helper.Helper;
 import org.jboss.modules.DependencySpec;
 import org.jboss.modules.Module;
 import org.jboss.modules.ModuleFinder;
@@ -65,7 +66,7 @@ public class JBossModulesSystem implements ModuleSystem<ClassbyteClassLoader>
     public void initialize(String args)
     {
         if (!args.isEmpty())
-            System.err.println("Unexpcted module system arguments: " + args);
+            Helper.err("Unexpcted module system arguments: " + args);
 
         // NOTE: this will be run at agent start, be careful
     }
@@ -88,7 +89,17 @@ public class JBossModulesSystem implements ModuleSystem<ClassbyteClassLoader>
                 }
             }
         };
-        ruleModuleLoader = new ModuleLoader(finders);
+        ruleModuleLoader = new ModuleLoaderWrapper(finders);
+    }
+    
+    /**
+     * Utility class to allow instantiating {@link ModuleLoader} with jboss-modules version 1.2.0 and earlier (protected constructors)
+     */
+    public class ModuleLoaderWrapper extends ModuleLoader
+    {
+        public ModuleLoaderWrapper(ModuleFinder[] finders) {
+            super(finders);
+        }
     }
 
     public ClassbyteClassLoader createLoader(ClassLoader triggerClassLoader, String[] imports)
@@ -178,7 +189,7 @@ public class JBossModulesSystem implements ModuleSystem<ClassbyteClassLoader>
     protected ClassbyteClassLoader warnAndFallback(ClassLoader triggerClassLoader, String message)
     {
         if (!warningEmitted.getAndSet(true)) {
-            System.err.println(message);
+            Helper.err(message);
         }
         return new ClassbyteClassLoader(triggerClassLoader);
     }
@@ -186,7 +197,7 @@ public class JBossModulesSystem implements ModuleSystem<ClassbyteClassLoader>
     protected ClassbyteClassLoader warnAndContinue(ClassLoader triggerClassLoader, String[] imports, String message)
     {
         if (!warningEmitted.getAndSet(true)) {
-            System.err.println(message);
+            Helper.err(message);
         }
         return createModularLoader(triggerClassLoader, imports);
     }
@@ -194,8 +205,8 @@ public class JBossModulesSystem implements ModuleSystem<ClassbyteClassLoader>
     protected ClassbyteClassLoader warnAndContinue(ClassLoader triggerClassLoader, String[] imports, Exception e, String message)
     {
         if (!warningEmitted.getAndSet(true)) {
-            System.err.println(message);
-            e.printStackTrace(System.err);
+            Helper.err(message);
+            Helper.errTraceException(e);
         }
         return createModularLoader(triggerClassLoader, imports);
     }

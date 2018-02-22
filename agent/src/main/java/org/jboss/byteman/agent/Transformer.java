@@ -23,15 +23,12 @@
 */
 package org.jboss.byteman.agent;
 
-import org.jboss.byteman.agent.adapter.*;
 import org.jboss.byteman.agent.check.ClassChecker;
 import org.jboss.byteman.agent.check.LoadCache;
 import org.jboss.byteman.modules.ModuleSystem;
 import org.jboss.byteman.rule.Rule;
+import org.jboss.byteman.rule.helper.Helper;
 import org.jboss.byteman.rule.type.TypeHelper;
-import org.jboss.byteman.rule.exception.ParseException;
-import org.jboss.byteman.rule.exception.TypeException;
-import org.objectweb.asm.*;
 
 import java.io.InputStream;
 import java.lang.instrument.ClassFileTransformer;
@@ -97,6 +94,8 @@ public class Transformer implements ClassFileTransformer {
                 }
             }
         }
+
+        accessEnabler = AccessManager.init(inst);
     }
 
     /**
@@ -131,11 +130,10 @@ public class Transformer implements ClassFileTransformer {
         if (!transformed.isEmpty()) {
             Class<?>[] transformedArray = new Class<?>[transformed.size()];
             transformed.toArray(transformedArray);
-            if (Transformer.isVerbose()) {
-                for (int i = 0; i < transformed.size(); i++) {
-                    System.out.println("retransforming " + transformedArray[i].getName());
-                }
+            for (int i = 0; i < transformed.size(); i++) {
+                Helper.verbose("retransforming " + transformedArray[i].getName());
             }
+
             inst.retransformClasses(transformedArray);
         }
     }
@@ -742,7 +740,7 @@ public class Transformer implements ClassFileTransformer {
      */
     public byte[] transform(RuleScript ruleScript, ClassLoader loader, String className, byte[] targetClassBytes)
     {
-        TransformContext transformContext = new TransformContext(this, ruleScript, className, loader, helperManager);
+        TransformContext transformContext = new TransformContext(this, ruleScript, className, loader, helperManager, accessEnabler);
 
         return transformContext.transform(targetClassBytes);
     }
@@ -798,9 +796,8 @@ public class Transformer implements ClassFileTransformer {
         byte[] newBuffer = buffer;
 
         if (ruleScripts != null) {
-//            if (isVerbose()) {
-//                System.out.println("tryTransform : " + name + " for " + key);
-//            }
+//          Helper.verbose("tryTransform : " + name + " for " + key);
+
             int counter = 0;
 
             for (RuleScript ruleScript : ruleScripts) {
@@ -823,8 +820,8 @@ public class Transformer implements ClassFileTransformer {
                     // with whatever other transforms succeed. we tarce the throwable to
                     // System.err just to ensure it can be seen.
 
-                    System.err.println("Transformer.transform : caught throwable " + th);
-                    th.printStackTrace(System.err);
+                    Helper.err("Transformer.transform : caught throwable " + th);
+                    Helper.errTraceException(th);
                 }
             }
         }
@@ -836,21 +833,21 @@ public class Transformer implements ClassFileTransformer {
         String file = ruleScript.getFile();
         int line = ruleScript.getLine();
         if (file != null) {
-            System.out.println("# " + file + " line " + line);
+            Helper.out("# " + file + " line " + line);
         }
-        System.out.println("RULE " + ruleScript.getName());
+        Helper.out("RULE " + ruleScript.getName());
         if (ruleScript.isInterface()) {
-            System.out.println("INTERFACE " + ruleScript.getTargetClass());
+            Helper.out("INTERFACE " + ruleScript.getTargetClass());
         } else {
-            System.out.println("CLASS " + ruleScript.getTargetClass());
+            Helper.out("CLASS " + ruleScript.getTargetClass());
         }
-        System.out.println("METHOD " + ruleScript.getTargetMethod());
+        Helper.out("METHOD " + ruleScript.getTargetMethod());
         if (ruleScript.getTargetHelper() != null) {
-            System.out.println("HELPER " + ruleScript.getTargetHelper());
+            Helper.out("HELPER " + ruleScript.getTargetHelper());
         }
-        System.out.println(ruleScript.getTargetLocation());
-        System.out.println(ruleScript.getRuleText());
-        System.out.println("ENDRULE");
+        Helper.out(ruleScript.getTargetLocation() + "");
+        Helper.out(ruleScript.getRuleText());
+        Helper.out("ENDRULE");
     }
 
     private boolean isTransformed(Class clazz, String name, boolean isInterface)
@@ -868,11 +865,9 @@ public class Transformer implements ClassFileTransformer {
         }
         if (scripts != null) {
             for (RuleScript script : scripts) {
-                if (!script.hasTransform(clazz)) {
+                if (script.hasTransform(clazz)) {
                     found = true;
-                    if (isVerbose()) {
-                        System.out.println("Retransforming loaded bootstrap class " + clazz.getName());
-                    }
+                    Helper.verbose("Retransforming loaded bootstrap class " + clazz.getName());
                     break;
                 }
             }
@@ -941,14 +936,13 @@ public class Transformer implements ClassFileTransformer {
                 return new org.jboss.byteman.agent.check.BytecodeChecker(bytecode);
             } else {
                 // throw new IOException("unable to load bytecode for for class " + name);
-                if (isVerbose()) {
-                    System.out.println("Transformer.getClassChecker : unable to load bytecode for for class " + name);
-                }
+                Helper.verbose("Transformer.getClassChecker : unable to load bytecode for for class " + name);
+
                 return null;
             }
         } catch (IOException e) {
             // log the exception and return null
-            e.printStackTrace();
+            Helper.errTraceException(e);
             return null;
         }
     }
@@ -1013,7 +1007,8 @@ public class Transformer implements ClassFileTransformer {
                 Class clazz = super.defineClass(classname, bytes, 0, bytes.length, protectionDomain);
                 clazz.newInstance();
             } catch (Throwable th) {
-                System.out.println("Transformer:verifyTransformedBytes " + th);
+                Helper.err("Transformer:verifyTransformedBytes " + th);
+                Helper.errTraceException(th);
                 return null;
             }
             return bytes;
@@ -1070,6 +1065,11 @@ public class Transformer implements ClassFileTransformer {
      * the instrumentation interface to the JVM
      */
     protected final Instrumentation inst;
+
+    /**
+     * an object we use to enable access to reflective fields where needed
+     */
+    AccessEnabler accessEnabler;
 
     /**
      * true if the instrumentor allows redefinition
@@ -1358,7 +1358,7 @@ public class Transformer implements ClassFileTransformer {
             String prefix = (dotIdx > 0 ? File.separator + fullName.substring(0, dotIdx) : "");
             String dir = getDumpGeneratedClassesDir() + prefix.replace('.', File.separatorChar);
             if (!ensureDumpDirectory(dir)) {
-                System.out.println("org.jboss.byteman.agent.Transformer : Cannot dump transformed bytes to directory " + dir + File.separator + prefix);
+                Helper.err("org.jboss.byteman.agent.Transformer : Cannot dump transformed bytes to directory " + dir + File.separator + prefix);
                 return;
             }
             String newname;
@@ -1375,18 +1375,18 @@ public class Transformer implements ClassFileTransformer {
             } else {
                 newname = dir + File.separator + name + ".class";
             }
-            System.out.println("org.jboss.byteman.agent.Transformer : Saving transformed bytes to " + newname);
+            Helper.out("org.jboss.byteman.agent.Transformer : Saving transformed bytes to " + newname);
             try {
                 FileOutputStream fio = new FileOutputStream(newname);
                 fio.write(bytes);
                 fio.close();
             } catch (IOException ioe) {
-                System.out.println("Error saving transformed bytes to" + newname);
-                ioe.printStackTrace(System.out);
+                Helper.err("Error saving transformed bytes to" + newname);
+                Helper.errTraceException(ioe);
             }
         } catch (Throwable th) {
-            System.out.println("org.jboss.byteman.agent.Transformer : Error saving transformed bytes for class " + fullName);
-            th.printStackTrace(System.out);
+            Helper.err("org.jboss.byteman.agent.Transformer : Error saving transformed bytes for class " + fullName);
+            Helper.errTraceException(th);
         }
     }
 

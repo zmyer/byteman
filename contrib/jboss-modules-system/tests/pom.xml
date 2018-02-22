@@ -19,13 +19,14 @@
 	<parent>
 		<groupId>org.jboss.byteman</groupId>
 		<artifactId>byteman-jboss-modules</artifactId>
-		<version>3.0.6-SNAPSHOT</version>
+		<version>4.0.1</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 
 	<properties>
 		<!-- <debug.options>-agentlib:jdwp=transport=dt_socket,address=5005,server=y,suspend=y</debug.options> -->
         <debug.options></debug.options>
+		<skip.tests>true</skip.tests>
 	</properties>
 
 	<build>
@@ -102,6 +103,7 @@
 							</includes>
 							<outputDirectory>${project.build.directory}/modules-root/common/main</outputDirectory>
 							<finalName>common</finalName>
+							<classifier>lib</classifier>
 						</configuration>
 					</execution>
 					<execution>
@@ -116,6 +118,7 @@
 							</includes>
 							<outputDirectory>${project.build.directory}/modules-root/runner/main</outputDirectory>
 							<finalName>runner</finalName>
+							<classifier>lib</classifier>
 						</configuration>
 					</execution>
 					<execution>
@@ -130,6 +133,7 @@
 							</includes>
 							<outputDirectory>${project.build.directory}/modules-root/helper/main</outputDirectory>
 							<finalName>helper</finalName>
+							<classifier>lib</classifier>
 						</configuration>
 					</execution>
                     <execution>
@@ -144,6 +148,7 @@
                             </includes>
                             <outputDirectory>${project.build.directory}/modules-root/testimport/main</outputDirectory>
                             <finalName>testimport</finalName>
+							<classifier>lib</classifier>
                         </configuration>
                     </execution>
 					<execution>
@@ -158,6 +163,7 @@
 							</includes>
 							<outputDirectory>${project.build.directory}/modules-root/testhelper/main</outputDirectory>
 							<finalName>testhelper</finalName>
+							<classifier>lib</classifier>
 						</configuration>
 					</execution>
 				</executions>
@@ -413,6 +419,7 @@
 				<artifactId>maven-verifier-plugin</artifactId>
 				<configuration>
 					<verificationFile>verification.xml</verificationFile>
+					<failOnError>false</failOnError>
 				</configuration>
 				<executions>
 					<execution>

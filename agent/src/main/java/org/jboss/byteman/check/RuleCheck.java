@@ -35,6 +35,8 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 
+import org.jboss.byteman.agent.AccessEnabler;
+import org.jboss.byteman.agent.AccessManager;
 import org.jboss.byteman.agent.HelperManager;
 import org.jboss.byteman.agent.LocationType;
 import org.jboss.byteman.agent.RuleScript;
@@ -68,6 +70,7 @@ public class RuleCheck {
         output = null;
         verbose = false;
         helperManager = new HelperManager(null, new RuleCheckModuleSystem());
+        accessEnabler = AccessManager.init(null);
     }
 
     public void setPrintStream(PrintStream printStream)
@@ -78,6 +81,11 @@ public class RuleCheck {
     public void setVerbose()
     {
         verbose = true;
+    }
+    
+    public void addRule(String name, String text) {
+        ruleFiles.add(name);
+        ruleTexts.add(text);
     }
 
     public boolean addRuleFile(String file) {
@@ -229,8 +237,7 @@ public class RuleCheck {
 
             // see if we have a record of any transform
             if (script.hasTransform(targetClass)) {
-                List<Transform> transforms = script.getTransformed();
-                int numTransforms = transforms.size();
+                List<Transform> transforms = script.allTransforms();
                 for (Transform transform : transforms) {
                     Throwable throwable = transform.getThrowable();
                     Rule rule = transform.getRule();
@@ -272,6 +279,9 @@ public class RuleCheck {
                     } catch (CompileException ce) {
                         typeError("ERROR : Failed to compile rule \"" + script.getName() + "\" loaded from " + script.getFile() + " line " + script.getLine() + (methodName == null ? "" : " against method " + methodName), ce);
                         continue;
+                    } catch (Throwable th) {
+                        typeError("ERROR : Failed to check rule \"" + script.getName() + "\" loaded from " + script.getFile() + " line " + script.getLine() + (methodName == null ? "" : " against method " + methodName), th);
+                        continue;
                     }
 
                     if (script.isOverride()) {
@@ -284,7 +294,7 @@ public class RuleCheck {
                 // ok, not necessarily a surprise - let's see if we can create a rule and parse/type check it
                 final Rule rule;
                 try {
-                    rule = Rule.create(script, loader, helperManager);
+                    rule = Rule.create(script, loader, helperManager, accessEnabler);
                 } catch (ParseException pe) {
                     parseError("ERROR : Failed to type check rule \"" + script.getName() + "\" loaded from " + script.getFile() + " line " + script.getLine(), pe);
                     continue;
@@ -356,7 +366,7 @@ public class RuleCheck {
                         // we need a new copy of the rule
 
                         try {
-                            rule = Rule.create(script, loader, helperManager);
+                            rule = Rule.create(script, loader, helperManager, accessEnabler);
                         } catch (ParseException e) {
                             // will not happen
                         } catch (TypeException e) {
@@ -399,6 +409,9 @@ public class RuleCheck {
                             typeError("ERROR : Failed to compile rule \"" + script.getName() + "\" loaded from " + script.getFile() + " line " + script.getLine(), ce);
                             System.out.println(ce);
                             System.out.println();
+                            return;
+                        } catch (Throwable th) {
+                            error("ERROR : Failed to process rule \"" + script.getName() + "\" loaded from " + script.getFile() + " line " + script.getLine(), th);
                             return;
                         }
                         if (script.isInterface()) {
@@ -567,6 +580,7 @@ public class RuleCheck {
     PrintStream output;
     private boolean verbose;
     private HelperManager helperManager;
+    private AccessEnabler accessEnabler;
 
     
     class RuleCheckModuleSystem extends NonModuleSystem
